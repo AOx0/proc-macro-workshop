@@ -9,15 +9,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let name = input.ident;
     let builder_name = Ident::new(&(name.to_string() + "Builder"), Span::call_site());
-    let builder_err_name = Ident::new(
-        &("Error".to_string() + &name.to_string() + "Builder"),
-        Span::call_site(),
-    );
 
     let mut builder_fields = vec![];
     let mut builder_fields_inits = vec![];
     let mut setters = vec![];
-    let mut set_checks = vec![];
     let mut build_items = vec![];
 
     if let Data::Struct(members) = input.data {
@@ -74,24 +69,10 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 };
 
                 let err_msg = format!("Error: {} wasn't initialized", quote! {#ident});
-                let set_check = if !is_option {
-                    quote!(
-                        if self. #ident .is_none() {
-                            return Err(
-                                Box::new(
-                                    #builder_err_name (& #err_msg )
-                                )
-                            );
-                        }
-                    )
-                } else {
-                    quote!()
-                };
-                set_checks.push(set_check);
 
                 let build_item = if !is_option {
                     quote!(
-                        #ident: self.#ident.to_owned().unwrap()
+                        #ident: self.#ident.to_owned().ok_or(#err_msg)?
                     )
                 } else {
                     quote!(
@@ -108,23 +89,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 
     let nothing = quote!(
-        #[derive(Debug)]
-        struct #builder_err_name <'a>(&'a str);
-
-        impl<'a> std::error::Error for #builder_err_name <'a> {}
-
-        impl<'a> core::fmt::Display for #builder_err_name <'a> {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                self.0.fmt(f)
-            }
-        }
-
-        impl<'a> From<&'a str> for #builder_err_name<'a> {
-            fn from(arg: &'a str) -> Self {
-                #builder_err_name (arg)
-            }
-        }
-
         impl #name {
             fn builder() -> #builder_name {
                 #builder_name {
@@ -143,8 +107,6 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
         impl  #builder_name {
             pub fn build(&mut self) -> Result<#name, Box<dyn std::error::Error>> {
-                #(#set_checks)*
-
                 Ok(#name {
                     #(#build_items),*
                 })
