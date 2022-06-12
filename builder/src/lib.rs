@@ -27,6 +27,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             for field in fields.named {
                 let syn::Field { ty, ident, .. } = field;
 
+                let mut optional_value = None;
                 let is_option = if let syn::Type::Path(ty) = ty.clone() {
                     let segments = ty.path.segments;
                     let segments = segments.first().unwrap();
@@ -34,7 +35,12 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
                     let generic_arg =
                         if let syn::PathArguments::AngleBracketed(v) = segments.arguments.clone() {
-                            matches!(v.args.first(), Some(GenericArgument::Type(_)))
+                            if let Some(GenericArgument::Type(ty)) = v.args.first() {
+                                optional_value = Some(ty.to_owned());
+                                true
+                            } else {
+                                false
+                            }
                         } else {
                             false
                         };
@@ -51,10 +57,21 @@ pub fn derive(input: TokenStream) -> TokenStream {
                 };
 
                 let builder_field_init = quote!(#ident: None);
-                let setter = quote! {fn #ident (&mut self, #ident: #ty ) -> &mut Self {
-                    self. #ident = Some(#ident);
-                    self
-                } };
+                let setter = if is_option {
+                    quote! {
+                        fn #ident (&mut self, #ident: #optional_value ) -> &mut Self {
+                            self. #ident = Some(#ident);
+                            self
+                        }
+                    }
+                } else {
+                    quote! {
+                        fn #ident (&mut self, #ident: #ty ) -> &mut Self {
+                            self. #ident = Some(#ident);
+                            self
+                        }
+                    }
+                };
 
                 let err_msg = format!("Error: {} wasn't initialized", quote! {#ident});
                 let set_check = if !is_option {
@@ -78,7 +95,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     )
                 } else {
                     quote!(
-                        #ident: self.#ident.to_owned().unwrap_or(None)
+                        #ident: self.#ident.to_owned()
                     )
                 };
                 build_items.push(build_item);
